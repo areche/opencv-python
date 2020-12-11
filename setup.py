@@ -6,6 +6,7 @@ import runpy
 import subprocess
 import re
 import sysconfig
+import platform
 import skbuild
 from skbuild import cmaker
 
@@ -16,10 +17,10 @@ def main():
     CI_BUILD = os.environ.get("CI_BUILD", "False")
     is_CI_build = True if CI_BUILD == "1" else False
     cmake_source_dir = "opencv"
-    minimum_supported_numpy = "1.13.1"
+    minimum_supported_numpy = "1.13.3"
     build_contrib = get_build_env_var_by_name("contrib")
     build_headless = get_build_env_var_by_name("headless")
-    build_java = 'ON' if get_build_env_var_by_name("java") else 'OFF'
+    build_java = "ON" if get_build_env_var_by_name("java") else "OFF"
 
     if sys.version_info[:2] >= (3, 6):
         minimum_supported_numpy = "1.13.3"
@@ -27,6 +28,12 @@ def main():
         minimum_supported_numpy = "1.14.5"
     if sys.version_info[:2] >= (3, 8):
         minimum_supported_numpy = "1.17.3"
+    if sys.version_info[:2] >= (3, 9):
+        minimum_supported_numpy = "1.19.3"
+
+    # arm64 is a special case
+    if sys.version_info[:2] >= (3, 6) and platform.machine() == "aarch64":
+        minimum_supported_numpy = "1.19.3"
 
     numpy_version = "numpy>=%s" % minimum_supported_numpy
 
@@ -161,16 +168,34 @@ def main():
 
     # OS-specific components during CI builds
     if is_CI_build:
-        if sys.platform.startswith("linux") and not build_headless:
-            cmake_args.append("-DWITH_QT=4")
 
-        if sys.platform == "darwin" and not build_headless:
-            if "bdist_wheel" in sys.argv:
-                cmake_args.append("-DWITH_QT=5")
+        if (
+            not build_headless
+            and "bdist_wheel" in sys.argv
+            and (sys.platform == "darwin" or sys.platform.startswith("linux"))
+        ):
+            cmake_args.append("-DWITH_QT=5")
+            subprocess.check_call("patch -p1 < patches/patchQtPlugins", shell=True)
+
+            if sys.platform.startswith("linux"):
+                rearrange_cmake_output_data["cv2.qt.plugins.platforms"] = [
+                    (r"lib/qt/plugins/platforms/libqxcb\.so")
+                ]
+
+                # add fonts for Qt5
+                fonts = []
+                for file in os.listdir("/usr/share/fonts/dejavu"):
+                    if file.endswith(".ttf"):
+                        fonts.append(
+                            (r"lib/qt/fonts/dejavu/%s\.ttf" % file.split(".")[0])
+                        )
+
+                rearrange_cmake_output_data["cv2.qt.fonts"] = fonts
+
+            if sys.platform == "darwin":
                 rearrange_cmake_output_data["cv2.qt.plugins.platforms"] = [
                     (r"lib/qt/plugins/platforms/libqcocoa\.dylib")
                 ]
-                subprocess.check_call("patch -p1 < patches/patchQtPlugins", shell=True)
 
         if sys.platform.startswith("linux"):
             cmake_args.append("-DWITH_V4L=ON")
@@ -202,6 +227,7 @@ def main():
         maintainer="Olli-Pekka Heinisuo",
         ext_modules=EmptyListWithLength(),
         install_requires=numpy_version,
+        python_requires=">=3.6",
         classifiers=[
             "Development Status :: 5 - Production/Stable",
             "Environment :: Console",
@@ -216,10 +242,11 @@ def main():
             "Operating System :: Unix",
             "Programming Language :: Python",
             "Programming Language :: Python :: 3",
-            "Programming Language :: Python :: 3.5",
+            "Programming Language :: Python :: 3 :: Only",
             "Programming Language :: Python :: 3.6",
             "Programming Language :: Python :: 3.7",
             "Programming Language :: Python :: 3.8",
+            "Programming Language :: Python :: 3.9",
             "Programming Language :: C++",
             "Programming Language :: Python :: Implementation :: CPython",
             "Topic :: Scientific/Engineering",

@@ -14,8 +14,15 @@ function bdist_wheel_cmd {
     # copied from multibuild's common_utils.sh
     # add osx deployment target so it doesnt default to 10.6
     local abs_wheelhouse=$1
-    CI_BUILD=1 pip wheel --wheel-dir="$PWD/dist" . --verbose $BDIST_PARAMS
+    CI_BUILD=1 pip wheel --verbose --wheel-dir="$PWD/dist" . $BDIST_PARAMS
     cp dist/*.whl $abs_wheelhouse
+    if [ -z "$IS_OSX" ]; then
+      TOOLS_PATH=/opt/_internal/tools
+      /opt/python/cp37-cp37m/bin/python -m venv $TOOLS_PATH
+      source $TOOLS_PATH/bin/activate
+      python patch_auditwheel_whitelist.py
+      deactivate
+    fi
     if [ -n "$USE_CCACHE" -a -z "$BREW_BOOTSTRAP_MODE" ]; then ccache -s; fi
 }
 
@@ -24,6 +31,7 @@ if [ -n "$IS_OSX" ]; then
   export MAKEFLAGS="-j$(sysctl -n hw.ncpu)"
 else
   echo "    > Linux environment "
+  export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/opt/Qt5.15.0/lib
   export MAKEFLAGS="-j$(grep -E '^processor[[:space:]]*:' /proc/cpuinfo | wc -l)"
 fi
 
@@ -88,20 +96,13 @@ function pre_build {
     echo "Running for OSX"
 
     local CACHE_STAGE; (echo "$TRAVIS_BUILD_STAGE_NAME" | grep -qiF "final") || CACHE_STAGE=1
-    export USER=travis
+    export HOMEBREW_NO_AUTO_UPDATE=1
+
     #after the cache stage, all bottles and Homebrew metadata should be already cached locally
     if [ -n "$CACHE_STAGE" ]; then
         brew update
         generate_ffmpeg_formula
         brew_add_local_bottles
-    fi
-
-    echo 'Installing qt5'
-    if [ -n "$CACHE_STAGE" ]; then
-        brew_install_and_cache_within_time_limit qt5 || { [ $? -gt 1 ] && return 2 || return 0; }
-    else
-        brew install qt5
-        export PATH="/usr/local/opt/qt/bin:$PATH"
     fi
 
     echo 'Installing FFmpeg'
@@ -110,7 +111,17 @@ function pre_build {
         brew_install_and_cache_within_time_limit ffmpeg_opencv || { [ $? -gt 1 ] && return 2 || return 0; }
     else
         brew unlink python@2
-        brew install -vd ffmpeg_opencv
+        brew install ffmpeg_opencv
+    fi
+
+    echo 'Installing qt5'
+    
+    if [ -n "$CACHE_STAGE" ]; then
+        echo "Qt5 has bottle, no caching needed"
+    else
+        brew switch qt 5.13.2
+        brew pin qt
+        export PATH="/usr/local/opt/qt/bin:$PATH"
     fi
 
     if [ -n "$CACHE_STAGE" ]; then

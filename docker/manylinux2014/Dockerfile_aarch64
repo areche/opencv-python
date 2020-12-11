@@ -1,4 +1,4 @@
-FROM quay.io/pypa/manylinux2014_x86_64:latest
+FROM quay.io/pypa/manylinux2014_aarch64:latest
 
 RUN yum install bzip2-devel curl-devel zlib-devel xcb-util-renderutil-devel xcb-util-devel xcb-util-image-devel xcb-util-keysyms-devel xcb-util-wm-devel mesa-libGL-devel libxkbcommon-devel libxkbcommon-x11-devel libXi-devel freetype-devel -y
 
@@ -60,6 +60,13 @@ RUN cd ~/ffmpeg_sources && \
     echo "/root/ffmpeg_build/lib/" >> /etc/ld.so.conf && \
     ldconfig && \
     rm -rf ~/ffmpeg_sources
+
+RUN curl -O -L https://github.com/ccache/ccache/releases/download/v3.7.9/ccache-3.7.9.tar.gz && \
+    tar -xf ccache-3.7.9.tar.gz && \
+    cd ccache-3.7.9 && \
+    linux32 ./configure && \
+    make -j$(getconf _NPROCESSORS_ONLN) && \
+    make install
 
 ENV PKG_CONFIG_PATH /usr/local/lib/pkgconfig:/root/ffmpeg_build/lib/pkgconfig
 ENV LDFLAGS -L/root/ffmpeg_build/lib
